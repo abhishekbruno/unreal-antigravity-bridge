@@ -1,0 +1,56 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases and indices
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Mutation lock and journal files
+*.mutation.lock
+*.journal.json
+
+# Environment and machine-specific configs
+.env
+.env.*
+!.env.example
+.venv/
+env/
+venv/
+ENV/
+*.local
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Backup and temporary files
+*.bak
+*.backup-*
+*.tmp
+
+# Unreal Engine generated folders and caches
+Intermediate/
+Saved/
+DerivedDataCache/
+Binaries/
+Build/
+*.VC.db
+*.opensdf
+*.sdf
+*.sln
+*.suo
+
