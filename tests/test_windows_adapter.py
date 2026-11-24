@@ -58,6 +58,12 @@ class WindowsAdapterTests(unittest.TestCase):
             bin_path = self.adapter.resolve_codex_binary()
             self.assertEqual(bin_path, Path("C:/Program Files/nodejs/codex.cmd").resolve())
 
+    def test_windows_resolve_agy_binary(self):
+        with patch("shutil.which") as mock_which:
+            mock_which.side_effect = lambda name: "C:\\Users\\zone\\.gemini\\bin\\agy.exe" if name == "agy.exe" else None
+            bin_path = self.adapter.resolve_agy_binary()
+            self.assertEqual(bin_path, Path("C:/Users/zone/.gemini/bin/agy.exe").resolve())
+
     def test_windows_inspect_port_owner(self):
         mock_netstat = (
             "  Proto  Local Address          Foreign Address        State           PID\n"

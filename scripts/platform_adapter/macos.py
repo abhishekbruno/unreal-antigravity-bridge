@@ -121,24 +121,50 @@ class MacOSAdapter(PlatformAdapter):
         root = Path(engine_root)
         return root / self.MAC_BINARY_REL
 
-    def resolve_codex_binary(self) -> Path:
-        # Check PATH for unix codex executable
-        found = shutil.which("codex")
-        if found and not found.lower().endswith(".cmd") and not found.lower().endswith(".bat"):
+    def resolve_client_binary(self, client: str = "agy") -> Path:
+        target = client.lower()
+        if target == "agy":
+            found = shutil.which("agy")
+            if found and not found.lower().endswith((".cmd", ".bat")):
+                return Path(found)
+
+            candidates = [
+                Path.home() / ".gemini/bin/agy",
+                Path("/usr/local/bin/agy"),
+                Path("/opt/homebrew/bin/agy"),
+            ]
+            for cand in candidates:
+                if cand.is_file() and os.access(cand, os.X_OK):
+                    return cand
+
+            raise FileNotFoundError("Google Antigravity CLI executable ('agy') not found on PATH or standard bin directories.")
+
+        if target == "codex":
+            # Check PATH for unix codex executable
+            found = shutil.which("codex")
+            if found and not found.lower().endswith(".cmd") and not found.lower().endswith(".bat"):
+                return Path(found)
+
+            # Check standard macOS tool locations
+            candidates = [
+                Path("/usr/local/bin/codex"),
+                Path("/opt/homebrew/bin/codex"),
+                Path.home() / ".npm-global/bin/codex",
+                Path.home() / ".nvm/current/bin/codex",
+            ]
+            for cand in candidates:
+                if cand.is_file() and os.access(cand, os.X_OK):
+                    return cand
+
+            raise FileNotFoundError("Codex CLI executable ('codex') not found in PATH or standard macOS bin directories (/opt/homebrew/bin, /usr/local/bin).")
+
+        found = shutil.which(client)
+        if found:
             return Path(found)
+        raise FileNotFoundError(f"CLI executable '{client}' not found on PATH.")
 
-        # Check standard macOS tool locations
-        candidates = [
-            Path("/usr/local/bin/codex"),
-            Path("/opt/homebrew/bin/codex"),
-            Path.home() / ".npm-global/bin/codex",
-            Path.home() / ".nvm/current/bin/codex",
-        ]
-        for cand in candidates:
-            if cand.is_file() and os.access(cand, os.X_OK):
-                return cand
-
-        raise FileNotFoundError("Codex CLI executable ('codex') not found in PATH or standard macOS bin directories (/opt/homebrew/bin, /usr/local/bin).")
+    def resolve_codex_binary(self) -> Path:
+        return self.resolve_client_binary("codex")
 
     def inspect_port_owner(self, port: int) -> int | None:
         """Find listening PID using macOS /usr/sbin/lsof."""

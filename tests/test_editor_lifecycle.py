@@ -21,6 +21,7 @@ class MockAdapter(PlatformAdapter):
     def discover_engine_installations(self): return [{"version": "5.8.4", "path": Path("/mock/UE"), "source": "test"}]
     def resolve_engine_root(self, explicit=None, project=None): return Path("/mock/UE")
     def resolve_editor_executable(self, root): return Path("/mock/UE/Editor")
+    def resolve_client_binary(self, client="agy"): return Path(f"/mock/bin/{client}")
     def resolve_codex_binary(self): return Path("/mock/bin/codex")
     def inspect_port_owner(self, port): return 1234
     def find_running_editor_processes(self): return []

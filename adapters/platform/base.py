@@ -44,10 +44,20 @@ class PlatformAdapter(ABC):
         """Resolve the executable path to UnrealEditor for this platform."""
         pass
 
-    @abstractmethod
+    def resolve_client_binary(self, client: str = "agy") -> Path:
+        """Locate an AI client CLI executable ('agy', 'codex', etc.) on the host system."""
+        found = shutil.which(client) or shutil.which(f"{client}.cmd") or shutil.which(f"{client}.exe")
+        if found:
+            return Path(found)
+        raise FileNotFoundError(f"CLI executable '{client}' not found on PATH.")
+
+    def resolve_agy_binary(self) -> Path:
+        """Locate the Google Antigravity CLI ('agy') on the host system."""
+        return self.resolve_client_binary("agy")
+
     def resolve_codex_binary(self) -> Path:
-        """Locate the Codex CLI executable on the host system."""
-        pass
+        """Locate the Codex CLI executable (deprecated; retained for compatibility)."""
+        return self.resolve_client_binary("codex")
 
     @abstractmethod
     def inspect_port_owner(self, port: int) -> int | None:

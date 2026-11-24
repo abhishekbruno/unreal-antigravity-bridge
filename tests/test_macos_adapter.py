@@ -62,6 +62,12 @@ class MacOSAdapterTests(unittest.TestCase):
             bin_path = self.adapter.resolve_codex_binary()
             self.assertEqual(bin_path, Path("/opt/homebrew/bin/codex"))
 
+    def test_macos_resolve_agy_binary(self):
+        with patch("shutil.which") as mock_which:
+            mock_which.return_value = "/opt/homebrew/bin/agy"
+            bin_path = self.adapter.resolve_agy_binary()
+            self.assertEqual(bin_path, Path("/opt/homebrew/bin/agy"))
+
     def test_macos_inspect_port_owner(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="p98765\n")

@@ -40,10 +40,24 @@ def check_engine(engine):
     return version
 
 
-def resolve_codex_bin():
-    """Resolve Codex CLI executable safely across Windows, Linux, and macOS."""
+def resolve_agy_bin():
+    """Resolve Google Antigravity CLI ('agy') executable safely across platforms."""
     if sys.platform == 'win32':
-        # On Windows, npm global CLIs have .cmd wrappers or .exe
+        resolved = shutil.which('agy.cmd') or shutil.which('agy.exe') or shutil.which('agy')
+    else:
+        resolved = shutil.which('agy')
+    if not resolved:
+        gemini_bin = Path.home() / '.gemini' / 'bin' / ('agy.exe' if sys.platform == 'win32' else 'agy')
+        if gemini_bin.is_file():
+            resolved = str(gemini_bin)
+    if not resolved:
+        raise ValueError("Google Antigravity CLI ('agy') absent from PATH and ~/.gemini/bin")
+    return resolved
+
+
+def resolve_codex_bin():
+    """Resolve Codex CLI executable safely across Windows, Linux, and macOS (compatibility fallback)."""
+    if sys.platform == 'win32':
         resolved = shutil.which('codex.cmd') or shutil.which('codex.exe') or shutil.which('codex')
     else:
         resolved = shutil.which('codex')
@@ -68,14 +82,18 @@ def run(project, engine, endpoint, full=False):
             checks.append({'name':name,'status':missing,'detail':str(exc)});return None
     check('python',lambda:sys.version)
     def cli():
-        bin_path = resolve_codex_bin()
         try:
-            return subprocess.check_output([bin_path, '--version'], text=True, timeout=15).strip()
-        except subprocess.CalledProcessError as exc:
-            raise ValueError(f'Codex CLI version check failed (exit code {exc.returncode}): {exc.output}') from exc
-        except OSError as exc:
-            raise ValueError(f'Failed to execute Codex CLI at {bin_path}: {exc}') from exc
-    check('codex_cli',cli,'BLOCKED')
+            bin_path = resolve_agy_bin()
+            out = subprocess.check_output([bin_path, '--version'], text=True, timeout=15).strip()
+            return f"Antigravity CLI: {out} ({bin_path})"
+        except Exception:
+            try:
+                codex_bin = resolve_codex_bin()
+                out = subprocess.check_output([codex_bin, '--version'], text=True, timeout=15).strip()
+                return f"Codex CLI (fallback): {out} ({codex_bin})"
+            except Exception:
+                raise ValueError("Neither Google Antigravity CLI ('agy') nor compatible AI client found")
+    check('antigravity_cli',cli,'BLOCKED')
     def project_check():
         if not project or not project.is_file() or project.suffix.lower()!='.uproject':
             raise ValueError('Supply the full path to an existing target .uproject')
@@ -89,23 +107,38 @@ def run(project, engine, endpoint, full=False):
     version=check('engine',lambda:check_engine(engine),'BLOCKED')
     def config_check():
         if not project_data: raise ValueError('Project unavailable')
-        path=project.parent/'.codex/config.toml'
-        data=tomllib.loads(path.read_text(encoding='utf-8-sig'))
-        matches=matching_servers(data,endpoint)
-        if len(matches)!=1: raise ValueError('Expected exactly one project MCP registration for endpoint')
-        if data['mcp_servers'][matches[0]].get('enabled') is False: raise ValueError('MCP registration disabled')
-        bin_path = resolve_codex_bin()
-        try:
-            cmd_out = subprocess.check_output([bin_path, 'mcp', 'list', '--json'], cwd=project.parent, text=True, timeout=30)
-            loaded = json.loads(cmd_out)
-        except subprocess.CalledProcessError as exc:
-            raise ValueError(f'Failed to query Codex MCP list (exit code {exc.returncode}): {exc.output}') from exc
-        except json.JSONDecodeError as exc:
-            raise ValueError(f'Malformed JSON from Codex MCP list: {exc}') from exc
-        matching=[s for s in loaded if s['name']==matches[0] and s.get('enabled') and s.get('transport',{}).get('url')==data['mcp_servers'][matches[0]]['url']]
-        if len(matching)!=1: raise ValueError('Codex did not load the intended server; check project trust and overrides')
-        return {'path':str(path),'server':matches[0],'recognized_by_codex':True}
-    check('codex_configuration',config_check,'BLOCKED')
+        # 1. Check Antigravity native mcp_config.json or project .mcp.json
+        candidate_paths = [
+            project.parent / 'mcp_config.json',
+            project.parent / '.mcp.json',
+            Path(__file__).resolve().parents[1] / 'mcp_config.json'
+        ]
+        for p in candidate_paths:
+            if p.is_file():
+                try:
+                    data = json.loads(p.read_text(encoding='utf-8-sig'))
+                    servers = data.get('mcpServers', {})
+                    if 'unreal-mcp' in servers:
+                        srv = servers['unreal-mcp']
+                        srv_url = srv.get('url') or srv.get('serverUrl')
+                        if srv_url == endpoint:
+                            return {'path': str(p), 'server': 'unreal-mcp', 'url': srv_url, 'format': 'antigravity_mcp_config'}
+                except Exception:
+                    pass
+
+        # 2. Check compatibility .codex/config.toml
+        codex_path = project.parent / '.codex/config.toml'
+        if codex_path.is_file():
+            try:
+                data = tomllib.loads(codex_path.read_text(encoding='utf-8-sig'))
+                matches = matching_servers(data, endpoint)
+                if len(matches) == 1:
+                    return {'path': str(codex_path), 'server': matches[0], 'format': 'codex_toml'}
+            except Exception:
+                pass
+
+        raise ValueError('Expected MCP registration for endpoint in mcp_config.json (or .mcp.json)')
+    check('mcp_configuration',config_check,'BLOCKED')
     valid=check('loopback_endpoint',lambda:validate_endpoint(endpoint))
     def tcp():
         p=urlsplit(endpoint)

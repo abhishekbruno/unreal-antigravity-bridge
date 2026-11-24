@@ -39,16 +39,20 @@ def cmd_detect(args, adapter):
     except Exception:
         pass
 
-    codex_bin = None
+    client_bin = None
     try:
-        codex_bin = str(adapter.resolve_codex_binary())
-    except Exception as exc:
-        codex_bin = f"Not detected ({exc})"
+        client_bin = str(adapter.resolve_client_binary("agy"))
+    except Exception:
+        try:
+            client_bin = str(adapter.resolve_codex_binary())
+        except Exception as exc:
+            client_bin = f"Not detected ({exc})"
 
     return {
         "platform": os_info,
         "architecture": arch,
-        "codex_binary": codex_bin,
+        "client_binary": client_bin,
+        "codex_binary": client_bin,
         "toolchain": toolchain,
         "installed_engines": [{"version": e["version"], "path": str(e["path"]), "source": e["source"]} for e in engines],
         "discovered_projects": projects
@@ -201,15 +205,29 @@ def cmd_uninstall(args, adapter):
     if not args.project:
         raise ValueError("Specify --project <path/to/Project.uproject>")
     proj = Path(args.project).resolve()
-    # Check .codex/config.toml
-    codex_toml = proj.parent / ".codex/config.toml"
     reverted = False
+
+    # Check mcp_config.json
+    mcp_json = proj.parent / "mcp_config.json"
+    if mcp_json.is_file():
+        try:
+            data = json.loads(mcp_json.read_text(encoding="utf-8"))
+            if "unreal-mcp" in data.get("mcpServers", {}):
+                del data["mcpServers"]["unreal-mcp"]
+                if not data["mcpServers"]:
+                    mcp_json.unlink()
+                else:
+                    mcp_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                reverted = True
+        except Exception:
+            pass
+
+    # Check compatibility .codex/config.toml
+    codex_toml = proj.parent / ".codex/config.toml"
     if codex_toml.is_file():
         text = configure.read(codex_toml)
         if "[mcp_servers.unreal-mcp]" in text:
-            # Revert using backup
             configure.backup(codex_toml)
-            # Remove server section
             import re
             cleaned = re.sub(r'\[mcp_servers\.unreal-mcp\]\s*url\s*=\s*"[^"]+"\s*', '', text)
             codex_toml.write_text(cleaned.strip() + "\n", encoding="utf-8")
@@ -218,6 +236,7 @@ def cmd_uninstall(args, adapter):
     return {
         "status": "uninstalled",
         "project": str(proj),
+        "config_reverted": reverted,
         "codex_config_reverted": reverted
     }
 

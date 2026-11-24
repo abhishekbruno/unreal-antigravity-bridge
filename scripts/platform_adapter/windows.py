@@ -118,25 +118,47 @@ class WindowsAdapter(PlatformAdapter):
         root = Path(engine_root).resolve()
         return root / "Engine/Binaries/Win64/UnrealEditor.exe"
 
+    def resolve_client_binary(self, client: str = "agy") -> Path:
+        target = client.lower()
+        if target == "agy":
+            for cand in ("agy.cmd", "agy.exe", "agy"):
+                found = shutil.which(cand)
+                if found:
+                    return Path(found).resolve()
+
+            gemini_bin = Path.home() / ".gemini" / "bin" / "agy.exe"
+            if gemini_bin.is_file():
+                return gemini_bin.resolve()
+
+            raise FileNotFoundError("Google Antigravity CLI executable (agy.exe) not found on PATH or in ~/.gemini/bin.")
+
+        if target == "codex":
+            for candidate_name in ("codex.cmd", "codex.exe", "codex"):
+                found = shutil.which(candidate_name)
+                if found:
+                    return Path(found).resolve()
+
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                npm_cmd = Path(appdata) / "npm/codex.cmd"
+                if npm_cmd.is_file():
+                    return npm_cmd
+
+            localappdata = os.environ.get("LOCALAPPDATA")
+            if localappdata:
+                prog_exe = Path(localappdata) / "Programs/codex/codex.exe"
+                if prog_exe.is_file():
+                    return prog_exe
+
+            raise FileNotFoundError("Codex CLI executable (codex.cmd or codex.exe) not found on PATH or standard npm directories.")
+
+        found = shutil.which(client) or shutil.which(f"{client}.cmd") or shutil.which(f"{client}.exe")
+        if found:
+            return Path(found).resolve()
+        raise FileNotFoundError(f"CLI executable '{client}' not found on PATH.")
+
     def resolve_codex_binary(self) -> Path:
-        for candidate_name in ("codex.cmd", "codex.exe", "codex"):
-            found = shutil.which(candidate_name)
-            if found:
-                return Path(found).resolve()
-
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            npm_cmd = Path(appdata) / "npm/codex.cmd"
-            if npm_cmd.is_file():
-                return npm_cmd
-
-        localappdata = os.environ.get("LOCALAPPDATA")
-        if localappdata:
-            prog_exe = Path(localappdata) / "Programs/codex/codex.exe"
-            if prog_exe.is_file():
-                return prog_exe
-
-        raise FileNotFoundError("Codex CLI executable (codex.cmd or codex.exe) not found on PATH or standard npm directories.")
+        return self.resolve_client_binary("codex")
 
     def inspect_port_owner(self, port: int) -> int | None:
         try:

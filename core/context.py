@@ -80,7 +80,7 @@ def inspect_project_context(start_path: Optional[Path | str] = None) -> Dict[str
     except (OSError, PermissionError):
         pass
 
-    mcp_config = (root / ".mcp.json").is_file()
+    mcp_config = (root / "mcp_config.json").is_file() or (root / ".mcp.json").is_file()
 
     return {
         "found": True,
@@ -107,15 +107,62 @@ def format_context_prompt(context: Dict[str, Any]) -> str:
     parts.append("Use the `unreal-mcp` skill for tasks that involve inspecting or driving the Unreal Editor via MCP.")
 
     if context.get("mcp_config_present"):
-        parts.append("An `.mcp.json` is present at the project root.")
+        parts.append("MCP configuration is present in the project.")
     else:
-        parts.append("No `.mcp.json` is present at the project root yet. Configure it using `python scripts/configure.py` or console command `ModelContextProtocol.GenerateClientConfig`.")
+        parts.append("No MCP configuration is present at the project root yet. Configure it using `python scripts/configure.py`.")
 
     return " ".join(parts)
 
 
+def execute_hook() -> int:
+    """Handle Antigravity SessionStart hook contract via stdin/stdout."""
+    payload: Dict[str, Any] = {}
+    if not sys.stdin.isatty():
+        try:
+            content = sys.stdin.read()
+            if content.strip():
+                payload = json.loads(content)
+        except Exception:
+            pass
+
+    search_paths = []
+    for p in payload.get("workspacePaths", []):
+        search_paths.append(Path(p))
+    if payload.get("cwd"):
+        search_paths.append(Path(payload["cwd"]))
+    if not search_paths:
+        search_paths.append(Path.cwd())
+
+    found_context = None
+    for candidate in search_paths:
+        ctx = inspect_project_context(candidate)
+        if ctx.get("found"):
+            found_context = ctx
+            break
+
+    if found_context and found_context.get("found"):
+        note = format_context_prompt(found_context)
+        output = {
+            "injectSteps": [
+                {
+                    "systemMessage": {
+                        "systemMessage": note
+                    }
+                }
+            ]
+        }
+    else:
+        output = {"injectSteps": []}
+
+    print(json.dumps(output))
+    return 0
+
+
 def main() -> int:
     """CLI entrypoint for hooks and subprocesses."""
+    if "--hook" in sys.argv:
+        return execute_hook()
+
     context = inspect_project_context()
     if not context["found"]:
         return 0

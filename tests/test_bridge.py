@@ -43,6 +43,22 @@ class ProtocolTests(unittest.TestCase):
     def test_project_path_normalized(self):
         m.verify_project('D:/Games/Test.uproject', 'd:\\games\\test.uproject')
 
+    def test_stdio_bridge_error_handling(self):
+        from unittest.mock import patch
+        import mcp_stdio_bridge
+
+        req_json = json.dumps({"jsonrpc": "2.0", "id": 42, "method": "tools/list", "params": {}}) + "\n"
+        with patch("sys.stdin", io.StringIO(req_json)), patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            # Point to an unoccupied loopback port
+            with patch("sys.argv", ["mcp_stdio_bridge.py", "http://127.0.0.1:59999/mcp"]):
+                code = mcp_stdio_bridge.main()
+                self.assertEqual(code, 0)
+                out = mock_stdout.getvalue()
+                resp = json.loads(out)
+                self.assertEqual(resp.get("id"), 42)
+                self.assertIn("error", resp)
+                self.assertEqual(resp["error"]["code"], -32603)
+
 
 if __name__ == '__main__':
     unittest.main()

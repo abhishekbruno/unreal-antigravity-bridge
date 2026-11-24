@@ -103,6 +103,37 @@ class CoreArchitectureTests(unittest.TestCase):
             prompt = format_context_prompt(context)
             self.assertEqual(prompt, "")
 
+    def test_hook_session_start_injection(self):
+        """Verify Antigravity SessionStart hook contract via core.context."""
+        from unittest.mock import patch
+        import io
+        from core.context import execute_hook
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            (temp_path / "TestGame.uproject").write_text('{"FileVersion": 3}')
+
+            # 1. Project found scenario
+            payload = json.dumps({"conversationId": "1234", "workspacePaths": [str(temp_path)]})
+            with patch("sys.stdin", io.StringIO(payload)), patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+                code = execute_hook()
+                self.assertEqual(code, 0)
+                res = json.loads(mock_stdout.getvalue())
+                self.assertIn("injectSteps", res)
+                self.assertEqual(len(res["injectSteps"]), 1)
+                msg = res["injectSteps"][0]["systemMessage"]["systemMessage"]
+                self.assertIn("TestGame.uproject", msg)
+
+            # 2. Empty directory scenario (isolated from project directory)
+            with tempfile.TemporaryDirectory() as empty_temp:
+                empty_dir = Path(empty_temp)
+                payload_empty = json.dumps({"conversationId": "5678", "workspacePaths": [str(empty_dir)]})
+                with patch("sys.stdin", io.StringIO(payload_empty)), patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+                    code = execute_hook()
+                    self.assertEqual(code, 0)
+                    res = json.loads(mock_stdout.getvalue())
+                    self.assertEqual(res, {"injectSteps": []})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,57 +1,80 @@
-"""Unit tests for Codex plugin manifest, marketplace catalog, and skill packaging."""
+"""Unit tests for native Google Antigravity plugin manifest, MCP config, hooks, and skill packaging."""
 
 import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PluginPackagingTests(unittest.TestCase):
-    def test_plugin_json_schema(self):
-        manifest_path = ROOT / ".codex-plugin/plugin.json"
+    def test_native_plugin_json_schema(self):
+        manifest_path = ROOT / "plugin.json"
         self.assertTrue(manifest_path.is_file(), f"Missing plugin.json at {manifest_path}")
 
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("name"), "unreal-codex-bridge")
-        self.assertIn("version", data)
+        self.assertEqual(data.get("name"), "unreal-antigravity-bridge")
+        self.assertEqual(data.get("displayName"), "Unreal Engine for Antigravity")
+        self.assertEqual(data.get("version"), "0.1.0-alpha.2")
         self.assertIn("description", data)
-        self.assertEqual(data.get("skills"), "./skills/")
-        self.assertEqual(data.get("mcpServers"), "./.mcp.json")
+        self.assertEqual(data.get("license"), "MIT")
+        self.assertEqual(data.get("repository"), "https://github.com/abhishekbruno/unreal-antigravity-bridge")
+        self.assertEqual(data.get("logo"), "assets/logo.svg")
+        self.assertTrue((ROOT / data["logo"]).is_file(), "Referenced logo file does not exist")
 
-        interface = data.get("interface", {})
-        self.assertIn("displayName", interface)
-        self.assertIn("shortDescription", interface)
-        self.assertEqual(interface.get("category"), "Developer Tools")
-        self.assertIn("Interactive", interface.get("capabilities", []))
+        prompts = data.get("suggestedPrompts", [])
+        self.assertIsInstance(prompts, list)
+        self.assertEqual(len(prompts), 3, "Expected exactly 3 suggestedPrompts")
 
-    def test_marketplace_json_schema(self):
-        marketplace_path = ROOT / ".agents/plugins/marketplace.json"
-        self.assertTrue(marketplace_path.is_file(), f"Missing marketplace.json at {marketplace_path}")
-
-        data = json.loads(marketplace_path.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("name"), "unreal-local")
-        self.assertIsInstance(data.get("plugins"), list)
-        self.assertEqual(len(data["plugins"]), 1)
-
-        plugin_entry = data["plugins"][0]
-        self.assertEqual(plugin_entry.get("name"), "unreal-codex-bridge")
-        self.assertEqual(plugin_entry.get("category"), "Developer Tools")
-        self.assertEqual(plugin_entry.get("policy", {}).get("installation"), "AVAILABLE")
-
-    def test_mcp_json_schema(self):
-        mcp_path = ROOT / ".mcp.json"
-        self.assertTrue(mcp_path.is_file(), f"Missing .mcp.json at {mcp_path}")
+    def test_mcp_config_json_schema(self):
+        mcp_path = ROOT / "mcp_config.json"
+        self.assertTrue(mcp_path.is_file(), f"Missing mcp_config.json at {mcp_path}")
 
         data = json.loads(mcp_path.read_text(encoding="utf-8"))
         servers = data.get("mcpServers", {})
         self.assertIn("unreal-mcp", servers)
 
         unreal_cfg = servers["unreal-mcp"]
-        self.assertEqual(unreal_cfg.get("type"), "http")
-        self.assertTrue(unreal_cfg.get("url", "").startswith("http://127.0.0.1:"))
-        self.assertTrue(unreal_cfg.get("url", "").endswith("/mcp"))
+        url = unreal_cfg.get("url", "")
+        self.assertTrue(url.startswith("http://127.0.0.1:"), f"URL {url} must bind to loopback")
+        self.assertTrue(url.endswith("/mcp"), f"URL {url} must route to /mcp")
+
+    def test_hooks_json_schema(self):
+        hooks_path = ROOT / "hooks.json"
+        self.assertTrue(hooks_path.is_file(), f"Missing hooks.json at {hooks_path}")
+
+        data = json.loads(hooks_path.read_text(encoding="utf-8"))
+        self.assertIn("unreal-session-context", data)
+        session_hook = data["unreal-session-context"]
+        self.assertIn("SessionStart", session_hook)
+        handlers = session_hook["SessionStart"]
+        self.assertIsInstance(handlers, list)
+        self.assertTrue(len(handlers) >= 1)
+
+        handler = handlers[0]
+        self.assertEqual(handler.get("type"), "command")
+        self.assertIn("core/context.py --hook", handler.get("command", ""))
+        self.assertTrue(handler.get("timeout", 0) > 0)
+
+    def test_rules_agents_md_present(self):
+        rules_path = ROOT / "rules/AGENTS.md"
+        self.assertTrue(rules_path.is_file(), f"Missing rules/AGENTS.md at {rules_path}")
+        text = rules_path.read_text(encoding="utf-8")
+        self.assertIn("Unreal Engine Development Rules for Google Antigravity", text)
+
+    def test_absence_of_legacy_artifacts(self):
+        legacy_paths = [
+            ROOT / ".codex-plugin",
+            ROOT / ".agents/plugins/marketplace.json",
+            ROOT / "AGENTS.unreal-codex.md",
+            ROOT / ".mcp.json",
+            ROOT / "mcp.json",
+        ]
+        for p in legacy_paths:
+            self.assertFalse(p.exists(), f"Legacy client artifact must not exist: {p}")
 
     def test_all_skills_have_valid_frontmatter(self):
         skills_dir = ROOT / "skills"
@@ -79,6 +102,32 @@ class PluginPackagingTests(unittest.TestCase):
 
         expected_skills = {"unreal-mcp", "create-toolset", "unreal-skill", "unreal-game", "unreal-playtest"}
         self.assertTrue(expected_skills.issubset(skill_names), f"Missing skills: {expected_skills - skill_names}")
+
+    def test_antigravity_cli_validate_passes_strict(self):
+        agy_bin = shutil.which("agy.cmd") or shutil.which("agy.exe") or shutil.which("agy")
+        if not agy_bin:
+            gemini_bin = Path.home() / ".gemini/bin/agy.exe"
+            if gemini_bin.is_file():
+                agy_bin = str(gemini_bin)
+
+        if not agy_bin:
+            self.skipTest("Antigravity CLI (agy) not available on this host")
+
+        res = subprocess.run(
+            [agy_bin, "plugin", "validate", ".", "--strict", "--json"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(res.returncode, 0, f"agy plugin validate failed:\n{res.stdout}\n{res.stderr}")
+        data = json.loads(res.stdout)
+        self.assertEqual(data.get("name"), "unreal-antigravity-bridge")
+        components = data.get("components", {})
+        self.assertEqual(components.get("skills"), 5)
+        self.assertEqual(components.get("hooks"), 1)
+        self.assertEqual(components.get("mcpServers"), 1)
+        self.assertEqual(components.get("rules"), 1)
 
 
 if __name__ == "__main__":

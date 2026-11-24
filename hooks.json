@@ -1,0 +1,11 @@
+{
+  "unreal-session-context": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python core/context.py --hook",
+        "timeout": 15
+      }
+    ]
+  }
+}
